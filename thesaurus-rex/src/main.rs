@@ -7,6 +7,10 @@ enum RegularLanguage<A> {
     Concatenation(Box<RegularLanguage<A>>, Box<RegularLanguage<A>>),
 }
 
+fn new_empty_word<A>() -> RegularLanguage<A> {
+    RegularLanguage::<A>::Repetition(Box::new(RegularLanguage::Empty))
+}
+
 fn try_match<'t, A>(language: &RegularLanguage<A>, word: &'t [A]) -> Option<&'t [A]>
 where
     A: core::cmp::PartialEq<A>,
@@ -81,7 +85,7 @@ fn match_empty_language() {
 
 #[test]
 fn match_empty_word_language() {
-    let language = RegularLanguage::<char>::Repetition(Box::new(RegularLanguage::Empty));
+    let language: RegularLanguage<char> = new_empty_word();
     assert!(is_match(&language, &[]));
 }
 
@@ -152,6 +156,25 @@ fn match_concatenation() {
     assert!(!is_match(&language, &['a', 'b', 'b']));
     assert!(!is_match(&language, &['a', 'a']));
     assert!(!is_match(&language, &['b', 'a']));
+}
+
+#[test]
+fn greediness_leads_to_false_negative() {
+    let language = RegularLanguage::<char>::Concatenation(
+        Box::new(RegularLanguage::<char>::Union(
+            Box::new(RegularLanguage::<char>::Singleton('a')),
+            Box::new(new_empty_word()),
+        )),
+        Box::new(RegularLanguage::<char>::Singleton('a')),
+    );
+    // wrong:
+    assert!(!is_match(&language, &['a']));
+    //right:
+    assert!(!is_match(&language, &[]));
+    assert!(!is_match(&language, &['b']));
+    assert!(is_match(&language, &['a', 'a']));
+    assert!(!is_match(&language, &['a', 'b']));
+    assert!(!is_match(&language, &['a', 'a', 'a']));
 }
 
 fn main() {
