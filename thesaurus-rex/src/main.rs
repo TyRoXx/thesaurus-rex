@@ -11,56 +11,60 @@ fn new_empty_word<A>() -> RegularLanguage<A> {
     RegularLanguage::<A>::Repetition(Box::new(RegularLanguage::Empty))
 }
 
-fn try_match<'t, A>(language: &RegularLanguage<A>, word: &'t [A]) -> Option<&'t [A]>
+fn try_match<'t, A>(language: &RegularLanguage<A>, word: &'t [A]) -> Vec<&'t [A]>
 where
     A: core::cmp::PartialEq<A>,
 {
     match language {
-        RegularLanguage::Empty => None,
+        RegularLanguage::Empty => Vec::new(),
         RegularLanguage::Singleton(character) => match word {
-            [head, ..] if (character == head) => Some(word.split_at(1).1),
-            _ => None,
+            [head, ..] if (character == head) => vec![word.split_at(1).1],
+            _ => Vec::new(),
         },
         RegularLanguage::Repetition(element) => {
-            let mut tail = word;
+            // TODO: deduplicate results
+            let mut results = Vec::new();
+            let mut stack = vec![vec![word]];
             loop {
-                let element_matched = try_match(&element, tail);
-                match element_matched {
-                    Some(new_tail) => {
-                        tail = new_tail;
+                match &mut stack.last_mut() {
+                    Some(last_element) => {
+                        let next_match = last_element.pop();
+                        match next_match {
+                            Some(matched) => {
+                                results.push(matched);
+                                let element_matches: Vec<&'t [A]> = try_match(&element, matched)
+                                    .drain(..)
+                                    // avoid infinite loop by discarding empty word matches
+                                    .filter(|matched_tail| matched_tail.len() < matched.len())
+                                    .collect();
+                                if !element_matches.is_empty() {
+                                    stack.push(element_matches);
+                                }
+                            }
+                            None => {
+                                stack.pop();
+                            }
+                        }
                     }
-                    None => {
-                        break;
-                    }
+                    None => break,
                 }
             }
-            Some(tail)
+            results
         }
         RegularLanguage::Union(first, second) => {
-            let first_match = try_match(first, word);
-            let second_match = try_match(second, word);
-            match (first_match, second_match) {
-                (None, None) => None,
-                (None, Some(tail)) => Some(tail),
-                (Some(tail), None) => Some(tail),
-                (Some(first_tail), Some(second_tail)) => {
-                    if second_tail.len() < first_tail.len() {
-                        Some(&second_tail)
-                    } else {
-                        Some(&first_tail)
-                    }
-                }
-            }
+            let mut first_match = try_match(first, word);
+            let mut second_match = try_match(second, word);
+            first_match.append(&mut second_match);
+            first_match
         }
         RegularLanguage::Concatenation(first, second) => {
-            let first_match = try_match(&first, word);
-            match first_match {
-                Some(tail) => {
-                    let second_match = try_match(&second, tail);
-                    second_match
-                }
-                None => None,
+            let mut results = Vec::new();
+            let first_matches = try_match(&first, word);
+            for first_match in first_matches {
+                let mut second_matches = try_match(&second, first_match);
+                results.append(&mut second_matches);
             }
+            results
         }
     }
 }
@@ -69,10 +73,8 @@ fn is_match<A>(language: &RegularLanguage<A>, word: &[A]) -> bool
 where
     A: core::cmp::PartialEq<A>,
 {
-    match try_match(language, word) {
-        Some(tail) => tail.is_empty(),
-        None => false,
-    }
+    let matches = try_match(language, word);
+    matches.iter().find(|element| element.is_empty()).is_some()
 }
 
 #[test]
@@ -108,6 +110,20 @@ fn match_repeated_singleton() {
     assert!(is_match(&language, &['a', 'a', 'a']));
     assert!(!is_match(&language, &['b']));
     assert!(!is_match(&language, &['a', 'a', 'a', 'b']));
+}
+
+#[test]
+fn match_repeated_empty_word() {
+    let language = RegularLanguage::<char>::Concatenation(
+        Box::new(RegularLanguage::<char>::Repetition(Box::new(
+            new_empty_word(),
+        ))),
+        Box::new(RegularLanguage::<char>::Singleton('a')),
+    );
+    assert!(!is_match(&language, &[]));
+    assert!(is_match(&language, &['a']));
+    assert!(!is_match(&language, &['b']));
+    assert!(!is_match(&language, &['a', 'a']));
 }
 
 #[test]
@@ -159,7 +175,7 @@ fn match_concatenation() {
 }
 
 #[test]
-fn greediness_leads_to_false_negative() {
+fn consider_empty_word_match() {
     let language = RegularLanguage::<char>::Concatenation(
         Box::new(RegularLanguage::<char>::Union(
             Box::new(RegularLanguage::<char>::Singleton('a')),
@@ -167,14 +183,33 @@ fn greediness_leads_to_false_negative() {
         )),
         Box::new(RegularLanguage::<char>::Singleton('a')),
     );
-    // wrong:
-    assert!(!is_match(&language, &['a']));
-    //right:
     assert!(!is_match(&language, &[]));
+    assert!(is_match(&language, &['a']));
     assert!(!is_match(&language, &['b']));
     assert!(is_match(&language, &['a', 'a']));
     assert!(!is_match(&language, &['a', 'b']));
     assert!(!is_match(&language, &['a', 'a', 'a']));
+}
+
+#[test]
+fn consider_non_empty_match() {
+    let language = RegularLanguage::<char>::Concatenation(
+        Box::new(RegularLanguage::<char>::Union(
+            Box::new(RegularLanguage::<char>::Concatenation(
+                Box::new(RegularLanguage::<char>::Singleton('a')),
+                Box::new(RegularLanguage::<char>::Singleton('a')),
+            )),
+            Box::new(RegularLanguage::<char>::Singleton('a')),
+        )),
+        Box::new(RegularLanguage::<char>::Singleton('a')),
+    );
+    assert!(!is_match(&language, &[]));
+    assert!(!is_match(&language, &['a']));
+    assert!(!is_match(&language, &['b']));
+    assert!(is_match(&language, &['a', 'a']));
+    assert!(is_match(&language, &['a', 'a', 'a']));
+    assert!(!is_match(&language, &['a', 'a', 'b']));
+    assert!(!is_match(&language, &['a', 'a', 'a', 'a']));
 }
 
 fn main() {
