@@ -48,7 +48,16 @@ where
                 }
             }
         }
-        RegularLanguage::Concatenation(_, _) => todo!(),
+        RegularLanguage::Concatenation(first, second) => {
+            let first_match = try_match(&first, word);
+            match first_match {
+                Some(tail) => {
+                    let second_match = try_match(&second, tail);
+                    second_match
+                }
+                None => None,
+            }
+        }
     }
 }
 
@@ -128,6 +137,21 @@ fn match_union_longer_match_wins() {
     assert!(!is_match(&language, &['b']));
     assert!(!is_match(&language, &['a', 'b']));
     assert!(is_match(&language, &['a', 'a', 'a']));
+}
+
+#[test]
+fn match_concatenation() {
+    let language = RegularLanguage::<char>::Concatenation(
+        Box::new(RegularLanguage::<char>::Singleton('a')),
+        Box::new(RegularLanguage::<char>::Singleton('b')),
+    );
+    assert!(!is_match(&language, &[]));
+    assert!(!is_match(&language, &['a']));
+    assert!(!is_match(&language, &['b']));
+    assert!(is_match(&language, &['a', 'b']));
+    assert!(!is_match(&language, &['a', 'b', 'b']));
+    assert!(!is_match(&language, &['a', 'a']));
+    assert!(!is_match(&language, &['b', 'a']));
 }
 
 fn main() {
