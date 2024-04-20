@@ -39,7 +39,13 @@ where
                 (None, None) => None,
                 (None, Some(tail)) => Some(tail),
                 (Some(tail), None) => Some(tail),
-                (Some(first_tail), Some(_)) => Some(first_tail),
+                (Some(first_tail), Some(second_tail)) => {
+                    if second_tail.len() < first_tail.len() {
+                        Some(&second_tail)
+                    } else {
+                        Some(&first_tail)
+                    }
+                }
             }
         }
         RegularLanguage::Concatenation(_, _) => todo!(),
@@ -109,17 +115,19 @@ fn match_union_simple() {
 }
 
 #[test]
-fn match_union_first_wins() {
+fn match_union_longer_match_wins() {
     let language = RegularLanguage::<char>::Union(
         Box::new(RegularLanguage::<char>::Singleton('a')),
         Box::new(RegularLanguage::<char>::Repetition(Box::new(
             RegularLanguage::<char>::Singleton('a'),
         ))),
     );
+    assert!(is_match(&language, &['a', 'a']));
     assert!(is_match(&language, &[]));
     assert!(is_match(&language, &['a']));
     assert!(!is_match(&language, &['b']));
-    assert!(!is_match(&language, &['a', 'a']));
+    assert!(!is_match(&language, &['a', 'b']));
+    assert!(is_match(&language, &['a', 'a', 'a']));
 }
 
 fn main() {
